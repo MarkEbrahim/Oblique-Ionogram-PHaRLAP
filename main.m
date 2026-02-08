@@ -36,6 +36,9 @@ ches_to_au_distance = 958.6;
 cc_to_au_bearing = 61.9086;
 cc_to_au_distance = 1268;
 
+t1 = [2026 4 15 6 0];        % UT - year, month, day, hour, minute
+t2 = [2026 4 15 18 0];
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % OTHER CONSTANTS
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -46,7 +49,6 @@ cc_to_au_distance = 1268;
 % PARAMETERS
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-UT = [2026 4 15 6 0];        % UT - year, month, day, hour, minute
 
 
     % iospheric environment parameters
@@ -79,9 +81,11 @@ function [all_freqs, all_heights, grid, ray_path_datas]=f1(origin_lat, origin_lo
 
 
 
-    elevs = [2:.05:60];            % initial ray elevation
+    elevs = [2:.05:80];            % initial ray elevation
+    % elevs = [2:2:60];            % initial ray elevation
     M = length(elevs);
     frequencies = [1:.1:10];
+    % frequencies = [1:.1:2];
 
     % grids = struct(size(frequencies));
 
@@ -126,7 +130,7 @@ function [all_freqs, all_heights, grid, ray_path_datas]=f1(origin_lat, origin_lo
         freqs = freq.*ones(size(elevs));
         % call raytrace for a fan of rays
         % first call to raytrace so pass in the ionospheric and geomagnetic grids 
-        fprintf('Generating %d 2D NRT rays ...', M);
+        % fprintf('Generating %d 2D NRT rays ...', M);
         tic
         [ray_data, ray_path_data] = ...
            raytrace_2d(origin_lat, origin_long, elevs, bearing, freqs, nhops, ...
@@ -138,12 +142,21 @@ function [all_freqs, all_heights, grid, ray_path_datas]=f1(origin_lat, origin_lo
 
         % find frequency that travels closest to Auburn
         % Identify the frequency that travels closest to Auburn
-        ground_ranges = [ray_data.ground_range];
-        [~, index] = min(abs(ground_ranges - distance));
-        height_for_elevation_angle = ray_data(index).apogee;
+        mask  = arrayfun(@(s) ~isnan(s.virtual_height), ray_data);
+        ground_ranges  = arrayfun(@(s) s.ground_range, ray_data);
+        ground_ranges2 = [ray_data.ground_range];
+        
+        ground_ranges(~mask) = Inf;          % exclude non-matching by making them huge
+        [m, index] = min(abs(ground_ranges - distance));
+
+        % ground_ranges = [ray_data.ground_range];
+        % data111 = [raydata.ground_range; raydata.apogee];
+        % x = abs(ground_ranges - distance)
+        % [m, index] = min((x)(x));
+        height_for_elevation_angle = ray_data(index).virtual_height;
         closest_elevation_angle = ray_data(index).initial_elev;
-        fprintf('Closest elevation angle to Auburn: %.2f deg; height: %.2f km \n', ...
-            closest_elevation_angle, height_for_elevation_angle);
+        fprintf('Freq %.2f: Closest elevation angle to Auburn: %.2f deg (d: %.2f); height: %.2f km \n', ...
+            freq, closest_elevation_angle, m, height_for_elevation_angle);
         ray_path_data_here = ray_path_data(index);
         C{end + 1} = ray_path_data_here;
         all_heights_temp(idx) = height_for_elevation_angle;
@@ -156,49 +169,125 @@ function [all_freqs, all_heights, grid, ray_path_datas]=f1(origin_lat, origin_lo
 end
 
 
-[fff, hhh, iii, jjj] = f1(ches_lat, ches_long, ches_to_au_bearing, ches_to_au_distance, UT);
 
 
-lll = cell2mat(jjj);
+% lll = cell2mat(jjj);
 
-cfg = config();
 
-% plot the rays and ionosphere
-figure(1)
-UT_str = [num2str(UT(3)) '/' num2str(UT(2)) '/' num2str(UT(1)) '  ' ...
-          num2str(UT(4), '%2.2d') ':' num2str(UT(5), '%2.2d') 'UT'];
-% freq_str = [num2str(freq) 'MHz'];
-R12_str = num2str(cfg.R12);
-lat_str = num2str(ches_lat);
-lon_str = num2str(ches_long);
-bearing_str = num2str(ches_to_au_bearing);
-fig_str = [UT_str '  R12 = ' R12_str '   lat = ' lat_str ...
-           ', lon = ' lon_str ', bearing = ' bearing_str];
-set(gcf, 'name', fig_str)
-start_range = 0;
-end_range = cfg.max_range;
-end_range_idx = fix((end_range-start_range) ./ cfg.range_inc) + 1;
-start_ht = start_height;
-start_ht_idx = 1;
-end_ht = 400;
-end_ht_idx = fix(end_ht ./ cfg.height_inc) + 1;
-iono_pf_subgrid = iii(start_ht_idx:end_ht_idx, 1:end_range_idx);
-plot_ray_iono_slice(iono_pf_subgrid, start_range, end_range, cfg.range_inc, ...
-    start_ht, end_ht, cfg.height_inc, lll, 'color', [1, 1, 0.99], ...
-    'linewidth', .5);
 
-set(gcf,'units','normal')
-pos = get(gcf,'position');
-pos(2) = 0.55;
-set(gcf,'position', pos)
 
-% uncomment the following to print figure to hi-res ecapsulated postscript
-% and PNG files
-set(gcf, 'paperorientation', 'portrait')
-set(gcf, 'paperunits', 'cent', 'paperposition', [0 0 61 18])
-set(gcf, 'papertype', 'a4') 
-% print -depsc2 -loose -opengl test.ps 
-% print -dpng test.png
+% figure(2)
+% plot(fff, hhh)
 
-figure(2)
-plot(fff, hhh)
+
+function plotionogram(x, y, title_str)
+    
+    figure;
+
+    ax = axes;
+    hold(ax, 'on');
+    grid(ax, 'on');
+    box(ax, 'on');
+    
+    scatter(x, y, 25, 'filled', 'o');
+    
+    xlabel('Frequency (MHz)', ...
+        'FontSize', 12, ...
+        'FontWeight', 'bold');
+
+    ylabel('Virtual Reflection Height (km)', ...
+        'FontSize', 12, ...
+        'FontWeight', 'bold');
+
+    title(title_str, ...
+        'FontSize', 14, ...
+        'FontWeight', 'bold');
+
+    set(ax, ...
+        'FontSize', 11, ...
+        'LineWidth', 1.2, ...
+        'GridLineStyle', '--', ...
+        'MinorGridLineStyle', ':', ...
+        'XMinorGrid', 'on', ...
+        'YMinorGrid', 'on');
+    ylim([0 400])
+end
+
+function altitude_graph(lat, long, bearing, tim, grid, raypathdatas)
+    cfg = config();
+    lll = cell2mat(raypathdatas);
+    % plot the rays and ionosphere
+    figure(1)
+    UT_str = [num2str(tim(3)) '/' num2str(tim(2)) '/' num2str(tim(1)) '  ' ...
+              num2str(tim(4), '%2.2d') ':' num2str(tim(5), '%2.2d') 'UT'];
+    % freq_str = [num2str(freq) 'MHz'];
+    R12_str = num2str(cfg.R12);
+    lat_str = num2str(lat);
+    lon_str = num2str(long);
+    bearing_str = num2str(bearing);
+    fig_str = [UT_str '  R12 = ' R12_str '   lat = ' lat_str ...
+               ', lon = ' lon_str ', bearing = ' bearing_str];
+    set(gcf, 'name', fig_str)
+    start_range = 0;
+    end_range = cfg.max_range;
+    end_range_idx = fix((end_range-start_range) ./ cfg.range_inc) + 1;
+    start_ht = cfg.start_height;
+    start_ht_idx = 1;
+    end_ht = 400;
+    end_ht_idx = fix(end_ht ./ cfg.height_inc) + 1;
+    iono_pf_subgrid = grid(start_ht_idx:end_ht_idx, 1:end_range_idx);
+    plot_ray_iono_slice(iono_pf_subgrid, start_range, end_range, cfg.range_inc, ...
+        start_ht, end_ht, cfg.height_inc, lll, 'color', [1, 1, 0.99], ...
+        'linewidth', .5);
+
+    set(gcf,'units','normal')
+    pos = get(gcf,'position');
+    pos(2) = 0.55;
+    set(gcf,'position', pos)
+
+    % uncomment the following to print figure to hi-res ecapsulated postscript
+    % and PNG files
+    set(gcf, 'paperorientation', 'portrait')
+    set(gcf, 'paperunits', 'cent', 'paperposition', [0 0 61 18])
+    set(gcf, 'papertype', 'a4') 
+    print -depsc2 -loose -opengl test.ps 
+    print -dpng test.png
+end
+
+% Chesapeake to Auburn, 6 AM
+[frequencies1, heights1, grid1, raypathdatas1] = f1(ches_lat, ches_long, ches_to_au_bearing, ches_to_au_distance, t1);
+plotionogram(frequencies1, heights1, 'Virtual Reflection Height vs Frequency (04/15/2002 6:00 AM from Chesapeake, VA to Auburn, AL)')
+
+% Chesapeake to Auburn, 6 PM
+[frequencies2, heights2, grid2, raypathdatas2] = f1(ches_lat, ches_long, ches_to_au_bearing, ches_to_au_distance, t2);
+plotionogram(frequencies2, heights2, 'Virtual Reflection Height vs Frequency (04/15/2002 6:00 PM from Chesapeake, VA to Auburn, AL)')
+
+% [frequencies3, heights3, grid3, raypathdatas3] = f1(cc_lat, cc_long, cc_to_au_bearing, cc_to_au_distance, t1);
+% altitude_graph(cc_lat, cc_long, cc_to_au_bearing, t1, grid3, raypathdatas3);
+% plotionogram(frequencies3, heights3, 'Virtual Reflection Height vs Frequency (04/15/2002 6:00 AM from Corpus Christi, TX to Auburn, AL)')
+
+% [frequencies4, heights4, grid4, raypathdatas4] = f1(cc_lat, cc_long, cc_to_au_bearing, cc_to_au_distance, t2);
+% altitude_graph(cc_lat, cc_long, cc_to_au_bearing, t2, grid4, raypathdatas4);
+% plotionogram(frequencies4, heights4, 'Virtual Reflection Height vs Frequency (04/15/2002 6:00 PM from Corpus Christi, TX to Auburn, AL)')
+
+
+% figure('Color','w');            % White background (journal-friendly)
+
+% ax = axes;
+% hold(ax,'on')
+% grid(ax,'on')
+% box(ax,'on')
+% 
+% scatter(frequencies1, heights1, 50, 'filled')
+% scatter(frequencies2, heights2, 50, 'filled')
+% 
+% xlabel('X axis')
+% ylabel('Y axis')
+% legend({'Dataset A','Dataset B'}, 'Location','best')
+
+% Corpus Christi to Auburn, 6 AM
+
+% Corpus Christi to Auburn, 6 PM
+
+
+
